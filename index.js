@@ -2,6 +2,7 @@ const express = require('express');
 const urlRoutes = require('./routes/url');
 const { connectToMongoDB } = require('./connect');
 const { handleRedirectShortURL } = require('./controllers/url');
+const URL = require('./models/url');
 require('dotenv').config();
 
 const app = express();
@@ -17,5 +18,12 @@ connectToMongoDB()
   })
   .catch((err) => console.error('MongoDB connection failed:', err.message));
 
-app.get('/:shortId', handleRedirectShortURL);
+app.use(express.json());
+app.get('/:shortId', async (req, res) => {
+    const shortId = req.params.shortId;
+    const entry = await URL.findOneAndUpdate({
+      shortId
+    }, {$push:{visitHistory: {timestamp: Date.now()},},});
+    res.redirect(entry.redirectURL);
+});
 app.use('/url', urlRoutes);

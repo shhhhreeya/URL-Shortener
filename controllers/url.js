@@ -1,5 +1,5 @@
 const { nanoid } = require('nanoid');
-const URL = require('../models/url');
+const URLModel = require('../models/url');
 
 async function handleGenerateShortURL(req, res) {
     const originalURL = req.body?.url;
@@ -16,7 +16,7 @@ async function handleGenerateShortURL(req, res) {
 
     const shortId = nanoid(8);
 
-    await URL.create({
+    await URLModel.create({
         shortId,
         redirectURL: originalURL,
         visitHistory: []
@@ -31,7 +31,7 @@ async function handleGenerateShortURL(req, res) {
 async function handleRedirectShortURL(req, res) {
     const { shortId } = req.params;
 
-    const existingURL = await URL.findOne({ shortId });
+    const existingURL = await URLModel.findOne({ shortId });
     if (!existingURL) {
         return res.status(404).json({ error: 'Short URL not found' });
     }
@@ -45,7 +45,7 @@ async function handleRedirectShortURL(req, res) {
 async function handleGetAnalytics(req, res) {
     const { shortId } = req.params;
 
-    const existingURL = await URL.findOne({ shortId });
+    const existingURL = await URLModel.findOne({ shortId });
     if (!existingURL) {
         return res.status(404).json({ error: 'Short URL not found' });
     }

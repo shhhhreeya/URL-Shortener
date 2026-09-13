@@ -1,7 +1,6 @@
-const prisma = require('../prisma/client');
+const prisma = require("../prisma/client");
 const encodeBase62 = require("../utils/base62");
 const redisClient = require("../redis/client");
-
 
 async function handleGenerateShortURL(req, res) {
   const originalURL = req.body?.url;
@@ -20,58 +19,59 @@ async function handleGenerateShortURL(req, res) {
     });
   }
 
-  const createdUrl = await prisma.url.create({
-  data: {
-    redirectURL: originalURL,
-  },
-});
+  try {
+    // Create row first
+    const createdUrl = await prisma.url.create({
+      data: {
+        redirectURL: originalURL,
+        shortId: "temp", // temporary value
+      },
+    });
 
-const shortId = encodeBase62(Number(createdUrl.id));
+    // Generate Base62 from DB id
+    const shortId = encodeBase62(Number(createdUrl.id));
 
-await prisma.url.update({
-  where: {
-    id: createdUrl.id,
-  },
-  data: {
-    shortId,
-  },
-});
+    // Save actual shortId
+    await prisma.url.update({
+      where: {
+        id: createdUrl.id,
+      },
+      data: {
+        shortId,
+      },
+    });
 
-  return res.status(201).json({
-  id: shortId,
-  shortURL: `${req.protocol}://${req.get("host")}/${shortId}`,
-});
+    return res.status(201).json({
+      id: shortId,
+      shortURL: `${req.protocol}://${req.get("host")}/${shortId}`,
+    });
+  } catch (error) {
+    console.error(error);
+
+    return res.status(500).json({
+      error: "Internal Server Error",
+    });
+  }
 }
 
 async function handleRedirectShortURL(req, res) {
   const { shortId } = req.params;
 
   try {
-
-    // 1. Check Redis first
+    // Check Redis first
     const cachedURL = await redisClient.get(shortId);
 
     if (cachedURL) {
-      console.log("CACHE HIT:", shortId);
+      console.log("CACHE HIT");
 
-      // Increment clicks in DB
-      await prisma.url.update({
-        where: {
-          shortId,
-        },
-        data: {
-          clicks: {
-            increment: 1,
-          },
-        },
-      });
+      await redisClient.incr(`clicks:${shortId}`);
 
       return res.redirect(cachedURL);
     }
 
-    console.log("CACHE MISS:", shortId);
+    console.log("CACHE MISS");
 
-    // 2. Query Postgres
+    // Fetch from Postgres
     const existingURL = await prisma.url.findUnique({
       where: {
         shortId,
@@ -84,7 +84,7 @@ async function handleRedirectShortURL(req, res) {
       });
     }
 
-    // 3. Store in Redis for 1 hour
+    // Store in Redis for 1 hour
     await redisClient.set(
       shortId,
       existingURL.redirectURL,
@@ -93,20 +93,10 @@ async function handleRedirectShortURL(req, res) {
       }
     );
 
-    // 4. Increment clicks
-    await prisma.url.update({
-      where: {
-        shortId,
-      },
-      data: {
-        clicks: {
-          increment: 1,
-        },
-      },
-    });
+    // Increment click counter
+    await redisClient.incr(`clicks:${shortId}`);
 
     return res.redirect(existingURL.redirectURL);
-
   } catch (error) {
     console.error(error);
 
@@ -119,27 +109,41 @@ async function handleRedirectShortURL(req, res) {
 async function handleGetAnalytics(req, res) {
   const { shortId } = req.params;
 
-  const existingURL = await prisma.url.findUnique({
-    where: {
-      shortId,
-    },
-  });
+  try {
+    const existingURL = await prisma.url.findUnique({
+      where: {
+        shortId,
+      },
+    });
 
-  if (!existingURL) {
-    return res.status(404).json({
-      error: "Short URL not found",
+    if (!existingURL) {
+      return res.status(404).json({
+        error: "Short URL not found",
+      });
+    }
+
+    const redisClicks =
+      await redisClient.get(`clicks:${shortId}`);
+
+    const totalClicks =
+      Number(redisClicks || 0);
+
+    return res.json({
+      shortId,
+      redirectURL: existingURL.redirectURL,
+      totalClicks,
+    });
+  } catch (error) {
+    console.error(error);
+
+    return res.status(500).json({
+      error: "Internal Server Error",
     });
   }
-
-  return res.json({
-    shortId,
-    redirectURL: existingURL.redirectURL,
-    totalClicks: existingURL.clicks,
-  });
 }
 
 module.exports = {
-    handleGenerateShortURL,
-    handleRedirectShortURL,
-    handleGetAnalytics
+  handleGenerateShortURL,
+  handleRedirectShortURL,
+  handleGetAnalytics,
 };

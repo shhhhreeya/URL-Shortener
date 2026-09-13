@@ -123,16 +123,18 @@ async function handleGetAnalytics(req, res) {
     }
 
     const redisClicks =
-      await redisClient.get(`clicks:${shortId}`);
+  Number(
+    await redisClient.get(`clicks:${shortId}`)
+  ) || 0;
 
-    const totalClicks =
-      Number(redisClicks || 0);
+const totalClicks =
+  existingURL.clicks + redisClicks;
 
     return res.json({
-      shortId,
-      redirectURL: existingURL.redirectURL,
-      totalClicks,
-    });
+  shortId,
+  redirectURL: existingURL.redirectURL,
+  totalClicks,
+});
   } catch (error) {
     console.error(error);
 
